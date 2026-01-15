@@ -43,7 +43,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
         )}
         <button
           onClick={onToggle}
-          className="w-9 h-9 rounded-xl bg-stone-100 hover:bg-stone-200 flex items-center justify-center transition-colors group"
+          className="w-10 h-10 rounded-xl bg-stone-100 hover:bg-stone-200 flex items-center justify-center transition-colors group"
           aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           <svg
@@ -65,13 +65,13 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
       </div>
 
       {/* Content */}
-      <div className={`flex-1 overflow-y-auto p-4 ${isCollapsed ? "flex flex-col items-center space-y-2" : "space-y-2"}`}>
+      <div className={`flex-1 overflow-y-auto p-4 ${isCollapsed ? "flex flex-col items-center space-y-4" : "space-y-2"}`}>
         {isCollapsed ? (
           <>
             {/* City Icon - Collapsed */}
             <button
               onClick={() => handleCollapsedClick("city")}
-              className="w-9 h-9 rounded-xl bg-stone-100 hover:bg-stone-200 flex items-center justify-center transition-colors"
+              className="w-10 h-10 rounded-xl bg-stone-100 hover:bg-stone-200 flex items-center justify-center transition-colors"
             >
               <svg
                 className="w-4 h-4 text-accent-600"
@@ -97,7 +97,7 @@ export function Sidebar({ isCollapsed, onToggle }: SidebarProps) {
             {/* Vibes Icon - Collapsed */}
             <button
               onClick={() => handleCollapsedClick("vibes")}
-              className="w-9 h-9 rounded-xl bg-stone-100 hover:bg-stone-200 flex items-center justify-center transition-colors"
+              className="w-10 h-10 rounded-xl bg-stone-100 hover:bg-stone-200 flex items-center justify-center transition-colors"
             >
               <svg
                 className="w-4 h-4 text-coral-600"
