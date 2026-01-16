@@ -3,6 +3,8 @@
 import { useRef, useEffect, useState } from "react";
 import mapboxgl from "mapbox-gl";
 
+const currentCity = "San Francisco, CA";
+
 // San Francisco coordinates
 const SF_CENTER: [number, number] = [-122.4194, 37.7749];
 const DEFAULT_ZOOM = 12;
@@ -72,7 +74,7 @@ export function Map() {
       <div className="absolute top-4 right-4 md:top-5 md:right-5 z-10">
         <div className="px-3 py-1.5 rounded-full bg-white/90 backdrop-blur-sm border border-stone-200 shadow-sm opacity-90">
           <span className="text-xs font-medium text-stone-600">
-            San Francisco, CA
+            {currentCity}
           </span>
         </div>
       </div>

@@ -98,7 +98,7 @@ This is expensive and slow — but runs once per city (or once per month).
 
 # 📍 Phase Roadmap
 
-## Phase 1 — UI Skeleton
+## Phase 1 — UI Skeleton - Complete
 Goal: Get a working web app shell.
 
 - Create Next.js project
@@ -112,7 +112,7 @@ Goal: Get a working web app shell.
 
 ---
 
-## Phase 2 — Map Foundation
+## Phase 2 — Map Foundation - Complete
 Goal: See San Francisco on a live map.
 
 - Add Mapbox GL JS
@@ -122,20 +122,7 @@ Goal: See San Francisco on a live map.
 
 ---
 
-## Phase 3 — Grid System
-Goal: Divide SF into meaningful “areas”.
-
-- Generate ~300m × 300m grid over SF bounding box
-- Store cells in Supabase
-- Draw grid on the map (debug toggle)
-- Each cell has:
-  - id
-  - lat/lng or polygon
-  - city_id
-
----
-
-## Phase 4 — Database
+## Phase 3 — Database
 Goal: Create the real product database.
 
 - Create Supabase project
@@ -146,6 +133,19 @@ Goal: Create the real product database.
   - venues
   - cell_vibes
 - Use Claude Code to write SQL migrations
+
+---
+
+## Phase 4 — Grid System
+Goal: Divide SF into meaningful “areas”.
+
+- Generate ~300m × 300m grid over SF bounding box
+- Store cells in Supabase
+- Draw grid on the map (debug toggle)
+- Each cell has:
+  - id
+  - lat/lng or polygon
+  - city_id
 
 ---
 
