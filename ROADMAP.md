@@ -122,7 +122,7 @@ Goal: See San Francisco on a live map.
 
 ---
 
-## Phase 3 — Database
+## Phase 3 — Database - Complete
 Goal: Create the real product database.
 
 - Create Supabase project
@@ -136,7 +136,7 @@ Goal: Create the real product database.
 
 ---
 
-## Phase 4 — Grid System
+## Phase 4 — Grid System - Complete
 Goal: Divide SF into meaningful “areas”.
 
 - Generate ~300m × 300m grid over SF bounding box
@@ -147,6 +147,54 @@ Goal: Divide SF into meaningful “areas”.
   - lat/lng or polygon
   - city_id
 
+
+
+Step 1 — Create San Francisco in the database
+
+You manually provide:
+	•	SF bounding box (Claude can find it)
+	•	Insert it into cities
+
+Now the database knows:
+
+“This city exists.”
+
+⸻
+
+Step 2 — Generate the grid (Claude writes this)
+
+Now you ask Claude:
+
+“Write a Next.js API route or Node script that:
+	•	Reads SF bounds from Supabase
+	•	Generates a 300m × 300m grid
+	•	Writes grid cells to grid_cells table”
+
+This script:
+	•	Uses PostGIS functions
+	•	Or Turf.js
+	•	Or simple math
+
+It only runs once.
+
+You run it from terminal or via:
+/api/admin/generate-sf-grid
+
+Now Supabase contains ~1,300 grid cells.
+
+Step 3 — Draw the grid on the map (debug mode)
+
+Claude now helps you:
+	•	Query grid_cells from Supabase
+	•	Convert polygons → GeoJSON
+	•	Add a Mapbox layer that draws them as:
+	•	Thin outlines
+	•	Semi-transparent fill
+	•	Add a “Show Grid” toggle
+
+Now when you click it, you see SF broken into cells.
+
+That’s your product skeleton.
 ---
 
 ## Phase 5 — Ingestion Pipeline
