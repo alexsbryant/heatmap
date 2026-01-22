@@ -64,13 +64,14 @@ Each grid cell has:
 - Location (lat/lng or polygon)
 - Venue count
 - Average rating
-- Vibe scores:
-  - photogenic
-  - trendy
-  - lively
-  - chill/local
-  - divey
-  - upscale
+- Vibe scores (frozen primitives):
+  - lively (energy, noise, activity)
+  - social (group-oriented vs solo)
+  - upscale (price level, polish)
+  - casual (relaxed, informal)
+  - trendy (new, popular, fashionable)
+  - local (neighborhood feel vs touristy)
+  - photogenic (visual/Instagram appeal)
 
 These values are computed once during ingestion and stored in Supabase.
 
@@ -203,149 +204,69 @@ Now when you click it, you see SF broken into cells.
 That’s your product skeleton.
 ---
 
-## Phase 5 — Ingestion Pipeline
+## Phase 5 — Ingestion Pipeline - Complete
 Goal: Turn SF into a vibe dataset.
 
-Freeze core primitive vibe dimensions into:
+### Implementation Summary
 
-	•	DB schema (already mostly done)
-	•	LLM prompt
+Created `/scripts/ingestCity.ts` to process grid cells through Google Places API and LLM vibe scoring, writing results to Supabase.
 
-Core primitive vibe dimensions to score:
+**Files Created:**
 
-- lively // Energy, noise, activity
-- social // Group-oriented vs solo
-- upscale // Price level, polish
-- casual // Relaxed, informal
-- trendy // New, popular, fashionable
-- local // Feels local vs touristy
-- photogenic // Visual, photographers commented, Instagram / socials appeal
+| File | Purpose |
+|------|---------|
+| `supabase/migrations/20260122000000_update_cell_vibes_schema.sql` | Schema migration: add social/casual/local, drop chill_local/divey |
+| `supabase/migrations/20260122000001_add_helper_functions.sql` | Helper function `get_grid_centroids()` |
+| `scripts/lib/config.ts` | Types, constants, place types array |
+| `scripts/lib/rateLimiter.ts` | Token bucket rate limiter with retry logic |
+| `scripts/lib/googlePlaces.ts` | Google Places API wrapper (Nearby Search + Place Details) |
+| `scripts/lib/vibeScorer.ts` | OpenAI LLM integration for vibe scoring |
+| `scripts/ingestCity.ts` | Main orchestrator script |
 
-Create a backend script or admin API route that:
-- Loops through each grid cell
-- Queries Google Places
-- Saves venues + reviews
-- Sends reviews to LLM
-- Receives vibe scores
-- Writes to Supabase
+**Runnable Scripts:**
 
-This is how a city is “loaded” into the system.
+```bash
+# Normal run - process all unprocessed cells
+npm run ingest-city -- san-francisco
 
-The ingestion script should be implemented as:
-	•	a Node.js script in /scripts/ingestCity.ts (preferred)
-	•	OR a protected /api/admin/ingest-city route
-  
-  Default to a Node script unless there is a strong reason otherwise.
+# Force reprocess all cells (ignore existing)
+npm run ingest-city -- san-francisco --force
 
-  The script will use the Supabase service role key for writes (server-side only).
+# Dry run - log only, no database writes
+npm run ingest-city -- san-francisco --dry-run
 
-  The script should log progress per grid cell and be safe to re-run (skip cells that already have vibe scores unless forced).
+# Test with limited cells
+npm run ingest-city -- san-francisco --limit 10
+```
 
-This avoids:
-	•	accidental double billing
-	•	partial failures ruining a run
+**Before Running:**
 
+1. Run migrations in Supabase SQL Editor:
+   - `20260122000000_update_cell_vibes_schema.sql`
+   - `20260122000001_add_helper_functions.sql`
 
-Ingestion Pipeline:
-  Correct order per grid cell
-	1.	Query Google Places (by category types)
-	2.	Store venues
-	3.	Aggregate review text per cell
-	4.	Send batched reviews to LLM
-	5.	Receive primitive vibe scores
-	6.	Write to cell_vibes
+2. Verify `.env.local` has:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+   - `GOOGLE_PLACES_API_KEY`
+   - `OPENAI_API_KEY`
 
-This ingestion pipeline is offline / admin-only.
-It is not user-facing, not triggered automatically, and is run manually from the terminal or a protected admin route.
+**Pipeline per grid cell:**
+1. Check if cell_vibes exists (skip unless --force)
+2. Search Google Places (6 types: restaurant, bar, cafe, night_club, park, tourist_attraction)
+3. Dedupe venues by google_place_id
+4. Filter venues with < 10 reviews
+5. Rank by (review_count × 0.7 + rating × 0.3)
+6. Upsert all qualified venues to `venues` table
+7. Fetch Place Details for top 5 venues (reviews)
+8. Aggregate review text
+9. Send to LLM (gpt-4.1-mini) for vibe scores
+10. Write cell_vibes row (null scores if no qualified venues)
 
-⚠️ Important Google Places constraints:
-
-1. You cannot fetch all reviews
-	•	Google returns limited review samples
-	•	Usually ~5 reviews per place
-	•	That’s fine for MVP
-
-2. Rate limits exist
-	•	Claude must:
-    •	throttle requests
-    •	batch by grid cell
-    •	respect per-second limits
-
-3. You must choose types
-
-You will query by types like:
-	•	restaurant
-	•	bar
-	•	cafe
-	•	night_club
-
-You cannot query “vibes” directly.
-
-LLM prompt responsibility
-
-The LLM should:
-	•	Read aggregated review text for a cell
-	•	Output only primitive scores
-	•	Normalize to 0–1
-	•	Explain nothing (for cost + consistency)
-
-LLM should NOT:
-	•	Invent categories
-	•	Reason about user intent
-	•	Produce prose explanations
-
-You will create one canonical prompt and never change it lightly.
-
-Example (simplified):
-
-“Given the following reviews aggregated for a city grid cell, return JSON with numeric scores (0–1) for:
-lively, social, upscale, casual, trendy, local, photogenic.
-Respond with JSON only.”
-
-This prompt becomes infrastructure.
-
-Check back with prompt before continuing. 
-
-⚠️ Important:
-Do NOT call the LLM per venue — only per grid cell.
-
-LLM Recommended:
-	•	GPT-4.1 mini or equivalent reasoning-light model
-
-Connect via API for pay-per-token useage when script is run, keeps usage payments seperate from Claude for build and OpenAI for LLM scoring. 
-
-
-Cost & scalability implication (why this matters)
-
-If you:
-	•	store primitives
-	•	cache per cell
-	•	only recompute when reviews materially change
-
-Then:
-	•	cities are loaded once
-	•	adding UI features is free
-	•	experimentation is cheap
-
-
-
-Checklist before telling Claude “write the script”
-
-You’re ready once:
-  x OpenAI API set up and key saved in env.local
-  x OpenAI Billing and quota set
-	x	Google Cloud project created
-	x	Places API enabled
-	x	API key created + restricted
-	x	Billing attached + quota set
-	x	Key saved in .env.local
-	x	Grid cells exist in Supabase
-
-Once those are true, Claude can safely write:
-	•	the ingestion script
-	•	retry logic
-	•	throttling
-	•	logging
+**Estimated Cost (SF, ~1,300 cells):** ~$306 total
+- Google Nearby Search: ~$250
+- Google Place Details: ~$55
+- OpenAI (gpt-4.1-mini): ~$1.30
 
 ---
 
