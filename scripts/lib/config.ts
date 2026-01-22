@@ -126,6 +126,7 @@ export interface CliOptions {
   force: boolean;
   dryRun: boolean;
   limit: number | null;
+  skip: number;
 }
 
 // Failed cell record for logging

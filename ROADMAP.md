@@ -217,13 +217,14 @@ Created `/scripts/ingestCity.ts` to process grid cells through Google Places API
 |------|---------|
 | `supabase/migrations/20260122000000_update_cell_vibes_schema.sql` | Schema migration: add social/casual/local, drop chill_local/divey |
 | `supabase/migrations/20260122000001_add_helper_functions.sql` | Helper function `get_grid_centroids()` |
+| `supabase/migrations/20260122000002_add_paginated_centroids.sql` | Paginated + geographically ordered centroid query |
 | `scripts/lib/config.ts` | Types, constants, place types array |
 | `scripts/lib/rateLimiter.ts` | Token bucket rate limiter with retry logic |
 | `scripts/lib/googlePlaces.ts` | Google Places API wrapper (Nearby Search + Place Details) |
 | `scripts/lib/vibeScorer.ts` | OpenAI LLM integration for vibe scoring |
 | `scripts/ingestCity.ts` | Main orchestrator script |
 
-**Runnable Scripts:**
+### Runnable Scripts
 
 ```bash
 # Normal run - process all unprocessed cells
@@ -235,15 +236,44 @@ npm run ingest-city -- san-francisco --force
 # Dry run - log only, no database writes
 npm run ingest-city -- san-francisco --dry-run
 
-# Test with limited cells
+# Skip first N cells (see "Skipping Ocean Cells" below)
+npm run ingest-city -- san-francisco --skip 735
+
+# Process only N cells
 npm run ingest-city -- san-francisco --limit 10
+
+# Combine options: skip ocean, test 20 land cells
+npm run ingest-city -- san-francisco --skip 735 --limit 20
 ```
 
-**Before Running:**
+### Skipping Ocean Cells (--skip)
 
-1. Run migrations in Supabase SQL Editor:
+SF's grid has 2,450 cells. The western ~735 cells are over the Pacific Ocean and have no venues. Processing them wastes ~$141 in API calls.
+
+**How --skip works:**
+
+The `get_grid_centroids_paginated` database function orders cells geographically:
+```sql
+ORDER BY ST_X(centroid), ST_Y(centroid)  -- longitude, then latitude
+```
+
+Since SF's ocean is on the **west** (most negative longitude), ocean cells come first:
+- Cells #1-735: Ocean (longitude ≤ -122.47, west of Ocean Beach)
+- Cells #736-2450: Land
+
+`--skip 735` tells the script to skip the first 735 cells in this ordered list. The script doesn't "know" they're ocean—the geographic ordering ensures they come first.
+
+**Recommended production run:**
+```bash
+npm run ingest-city -- san-francisco --skip 735
+```
+
+### Before Running
+
+1. Run all migrations in Supabase SQL Editor:
    - `20260122000000_update_cell_vibes_schema.sql`
    - `20260122000001_add_helper_functions.sql`
+   - `20260122000002_add_paginated_centroids.sql` ← enables --skip
 
 2. Verify `.env.local` has:
    - `NEXT_PUBLIC_SUPABASE_URL`
@@ -251,7 +281,8 @@ npm run ingest-city -- san-francisco --limit 10
    - `GOOGLE_PLACES_API_KEY`
    - `OPENAI_API_KEY`
 
-**Pipeline per grid cell:**
+### Pipeline per grid cell
+
 1. Check if cell_vibes exists (skip unless --force)
 2. Search Google Places (6 types: restaurant, bar, cafe, night_club, park, tourist_attraction)
 3. Dedupe venues by google_place_id
@@ -263,10 +294,32 @@ npm run ingest-city -- san-francisco --limit 10
 9. Send to LLM (gpt-4.1-mini) for vibe scores
 10. Write cell_vibes row (null scores if no qualified venues)
 
-**Estimated Cost (SF, ~1,300 cells):** ~$306 total
-- Google Nearby Search: ~$250
-- Google Place Details: ~$55
-- OpenAI (gpt-4.1-mini): ~$1.30
+### Cost Breakdown (San Francisco, 2,450 cells)
+
+**Cell Distribution:**
+| Type | Count | Description |
+|------|-------|-------------|
+| Ocean | 735 | West of Ocean Beach, no venues |
+| Land | 1,715 | Potentially have venues |
+| Developed | ~1,127 | Likely have qualified venues |
+
+**Full Run (all 2,450 cells):**
+| Operation | Formula | Cost |
+|-----------|---------|------|
+| Nearby Search | 2,450 × 6 types × $0.032 | $470 |
+| Place Details | ~3,400 calls × $0.025 | ~$85 |
+| OpenAI | ~1,000 calls × $0.003 | ~$3 |
+| **Total** | | **~$558** |
+
+**With --skip 735 (recommended):**
+| Operation | Formula | Cost |
+|-----------|---------|------|
+| Nearby Search | 1,715 × 6 × $0.032 | $329 |
+| Place Details | ~3,400 × $0.025 | ~$85 |
+| OpenAI | ~1,000 × $0.003 | ~$3 |
+| **Total** | | **~$417** |
+
+**Savings from --skip 735:** ~$141
 
 ---
 
@@ -301,11 +354,11 @@ These are just weighted combinations of vibe scores.
 
 # 💰 Cost Model (San Francisco)
 
-Approx:
-- 1,300 grid cells
-- 1 LLM call per cell
-- ≈ $5–$15 per city to ingest
-- Zero LLM cost during normal usage
+Actual (2,450 grid cells):
+- ~$417 with --skip 735 (skip ocean cells)
+- ~$558 without skip (full grid)
+- ~1,000 LLM calls (only cells with qualified venues)
+- Zero API cost during normal usage (all data precomputed)
 
 ---
 

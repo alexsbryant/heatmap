@@ -9,6 +9,7 @@
  *   npm run ingest-city -- san-francisco --force
  *   npm run ingest-city -- san-francisco --dry-run
  *   npm run ingest-city -- san-francisco --limit 10
+ *   npm run ingest-city -- san-francisco --skip 800 --limit 100
  */
 
 import { config } from 'dotenv';
@@ -67,6 +68,7 @@ function parseArgs(): CliOptions {
     console.error('Options:');
     console.error('  --force    Reprocess all cells (ignore existing)');
     console.error('  --dry-run  Log only, no database writes');
+    console.error('  --skip N   Skip first N cells (for resuming or skipping ocean)');
     console.error('  --limit N  Process only N cells');
     process.exit(1);
   }
@@ -76,6 +78,7 @@ function parseArgs(): CliOptions {
     force: args.includes('--force'),
     dryRun: args.includes('--dry-run'),
     limit: null,
+    skip: 0,
   };
 
   const limitIndex = args.indexOf('--limit');
@@ -83,6 +86,15 @@ function parseArgs(): CliOptions {
     options.limit = parseInt(args[limitIndex + 1], 10);
     if (isNaN(options.limit) || options.limit <= 0) {
       console.error('Invalid --limit value');
+      process.exit(1);
+    }
+  }
+
+  const skipIndex = args.indexOf('--skip');
+  if (skipIndex !== -1 && args[skipIndex + 1]) {
+    options.skip = parseInt(args[skipIndex + 1], 10);
+    if (isNaN(options.skip) || options.skip < 0) {
+      console.error('Invalid --skip value');
       process.exit(1);
     }
   }
@@ -113,49 +125,78 @@ async function getGridCells(
   cityId: string,
   options: CliOptions
 ): Promise<GridCell[]> {
-  // Try to get centroids using RPC function
-  const { data: centroidData, error: centroidError } = await supabase.rpc(
-    'get_grid_centroids',
-    { p_city_id: cityId }
-  );
+  // Paginate to get all cells (Supabase default limit is 1000)
+  const PAGE_SIZE = 1000;
+  let allCells: GridCell[] = [];
+  let offset = 0;
+  let hasMore = true;
 
-  let cellsWithCentroids: GridCell[];
+  console.log('Fetching grid cells...');
 
-  if (centroidError || !centroidData) {
-    console.error('');
-    console.error('ERROR: The get_grid_centroids function is not available.');
-    console.error('Please run the following migration in your Supabase SQL Editor:');
-    console.error('');
-    console.error('  supabase/migrations/20260122000001_add_helper_functions.sql');
-    console.error('');
-    console.error('Or execute this SQL directly:');
-    console.error('');
-    console.error(`  CREATE OR REPLACE FUNCTION get_grid_centroids(p_city_id UUID)
-  RETURNS TABLE(id UUID, city_id UUID, centroid TEXT) AS $$
-  BEGIN
-    RETURN QUERY
-    SELECT gc.id, gc.city_id, ST_AsText(gc.centroid) as centroid
-    FROM grid_cells gc
-    WHERE gc.city_id = p_city_id;
-  END;
-  $$ LANGUAGE plpgsql;`);
-    console.error('');
-    process.exit(1);
+  while (hasMore) {
+    const { data: centroidData, error: centroidError } = await supabase.rpc(
+      'get_grid_centroids_paginated',
+      { p_city_id: cityId, p_limit: PAGE_SIZE, p_offset: offset }
+    );
+
+    if (centroidError) {
+      // Fall back to non-paginated version
+      const { data: fallbackData, error: fallbackError } = await supabase.rpc(
+        'get_grid_centroids',
+        { p_city_id: cityId }
+      );
+
+      if (fallbackError || !fallbackData) {
+        console.error('');
+        console.error('ERROR: The get_grid_centroids function is not available.');
+        console.error('Please run the migration in Supabase SQL Editor:');
+        console.error('  supabase/migrations/20260122000001_add_helper_functions.sql');
+        console.error('');
+        process.exit(1);
+      }
+
+      // Non-paginated version - use what we got (may be truncated at 1000)
+      allCells = fallbackData as GridCell[];
+      console.log(`  Warning: Using non-paginated query, got ${allCells.length} cells`);
+      console.log('  Run the updated migration for full cell support.');
+      hasMore = false;
+    } else {
+      const batch = centroidData as GridCell[];
+      allCells = allCells.concat(batch);
+      hasMore = batch.length === PAGE_SIZE;
+      offset += PAGE_SIZE;
+
+      if (hasMore) {
+        console.log(`  Fetched ${allCells.length} cells...`);
+      }
+    }
   }
 
-  cellsWithCentroids = centroidData as GridCell[];
+  console.log(`Total cells in database: ${allCells.length}`);
+  let cellsWithCentroids = allCells;
+
+  // Apply skip first (before filtering processed cells)
+  if (options.skip > 0) {
+    console.log(`Skipping first ${options.skip} cells (--skip)`);
+    cellsWithCentroids = cellsWithCentroids.slice(options.skip);
+  }
 
   // Filter out cells that already have vibe scores (unless --force)
   if (!options.force) {
-    const { data: existingVibes } = await supabase
-      .from('cell_vibes')
-      .select('grid_cell_id')
-      .in(
-        'grid_cell_id',
-        cellsWithCentroids.map((c) => c.id)
-      );
+    // Batch the query to avoid URL length limits
+    const BATCH_SIZE = 500;
+    const processedIds = new Set<string>();
 
-    const processedIds = new Set(existingVibes?.map((v) => v.grid_cell_id) || []);
+    for (let i = 0; i < cellsWithCentroids.length; i += BATCH_SIZE) {
+      const batch = cellsWithCentroids.slice(i, i + BATCH_SIZE);
+      const { data: existingVibes } = await supabase
+        .from('cell_vibes')
+        .select('grid_cell_id')
+        .in('grid_cell_id', batch.map((c) => c.id));
+
+      existingVibes?.forEach((v) => processedIds.add(v.grid_cell_id));
+    }
+
     const originalCount = cellsWithCentroids.length;
     cellsWithCentroids = cellsWithCentroids.filter((c) => !processedIds.has(c.id));
 
@@ -343,7 +384,7 @@ async function main(): Promise<void> {
   const options = parseArgs();
 
   console.log(`City: ${options.citySlug}`);
-  console.log(`Options: force=${options.force}, dryRun=${options.dryRun}, limit=${options.limit}`);
+  console.log(`Options: force=${options.force}, dryRun=${options.dryRun}, skip=${options.skip}, limit=${options.limit}`);
   console.log('');
 
   // Initialize clients
