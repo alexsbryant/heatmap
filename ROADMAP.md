@@ -6,6 +6,12 @@ The core idea:
 
 The app is powered by a precomputed geospatial database built from Google Places + LLM-based vibe classification.
 
+The core value comes from:
+	•	Review language
+	•	Human sentiment
+	•	Qualitative vibes
+	•	LLM interpretation
+
 ---
 
 # 🧠 Product Model
@@ -328,11 +334,11 @@ Checklist before telling Claude “write the script”
 You’re ready once:
   x OpenAI API set up and key saved in env.local
   x OpenAI Billing and quota set
-	•	Google Cloud project created
-	•	Places API enabled
-	•	API key created + restricted
-	•	Billing attached + quota set
-	•	Key saved in .env.local
+	x	Google Cloud project created
+	x	Places API enabled
+	x	API key created + restricted
+	x	Billing attached + quota set
+	x	Key saved in .env.local
 	x	Grid cells exist in Supabase
 
 Once those are true, Claude can safely write:
@@ -340,97 +346,6 @@ Once those are true, Claude can safely write:
 	•	retry logic
 	•	throttling
 	•	logging
-
-
-PHASE 5 PROMPT:
-
-You are acting as a senior backend engineer helping plan Phase 5 of a geospatial web app called Prism.
-
-Do NOT write code yet.
-First respond with a clear, structured PLAN ONLY.
-
-Context:
-Prism is a web app that shows heatmap-style “vibe” overlays for cities.
-We have already completed:
-- Mapbox map with SF loaded
-- A Supabase database with PostGIS enabled
-- Grid cells (~300m × 300m) generated for San Francisco
-- Tables: cities, grid_cells, venues, cell_vibes
-
-Phase 5 — Ingestion Pipeline
-Goal: Turn San Francisco into a vibe dataset.
-
-This ingestion pipeline is:
-- offline / admin-only
-- not user-facing
-- run manually from the terminal or a protected admin route
-- expected to run once per city (or on rare recomputation)
-
-Primitive vibe dimensions are frozen and must not be changed lightly:
-
-- lively (energy, noise, activity)
-- social (group-oriented vs solo)
-- upscale (price level, polish)
-- casual (relaxed, informal)
-- trendy (new, popular, fashionable)
-- local (feels local vs touristy)
-- photogenic (visual / Instagram appeal)
-
-These are stored as numeric scores (0–1) in `cell_vibes`.
-
-LLM responsibilities:
-- Read aggregated review text per grid cell
-- Output ONLY JSON with numeric scores (0–1) for the primitives
-- No prose, no explanations, no invented categories
-- One canonical prompt used consistently
-
-LLM should NOT:
-- Invent categories
-- Reason about user intent
-- Produce text explanations
-
-Data sources & constraints:
-- Google Places API (Nearby Search + Details)
-- Limited review samples (~5 per place)
-- Rate limits must be respected
-- Query by place types only (restaurant, bar, cafe, night_club, etc.)
-- Do NOT call the LLM per venue — only per grid cell
-
-Recommended LLM:
-- GPT-4.1 mini or equivalent reasoning-light OpenAI model
-- Accessed via OpenAI API (pay-per-token)
-- Separate from Claude usage
-
-Ingestion order per grid cell:
-1. Query Google Places by type
-2. Store venues + reviews
-3. Aggregate review text per cell
-4. Send batched reviews to LLM
-5. Receive primitive vibe scores
-6. Write to cell_vibes
-
-Environment assumptions:
-- OPENAI_API_KEY is set
-- GOOGLE_PLACES_API_KEY is set
-- Supabase service role key is available server-side
-- Grid cells already exist in Supabase
-
-Requirements:
-- The script should be safe to re-run (skip cells already scored unless forced)
-- Include basic throttling and retry logic
-- Include logging so progress is visible
-- Prefer a Node.js script in /scripts unless there is a strong reason to use an API route
-
-Task:
-Provide a clear step-by-step PLAN for implementing this ingestion pipeline, including:
-- script structure
-- data flow
-- API usage strategy
-- error handling approach
-- cost control considerations
-
-Do not write code yet.
-
 
 ---
 
